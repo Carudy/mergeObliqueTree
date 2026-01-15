@@ -3,7 +3,6 @@ import time
 
 import numpy as np
 import pandas as pd
-import sklearn.datasets as skd
 from sklearn.cluster import HDBSCAN
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
@@ -13,6 +12,10 @@ from xgboost import XGBClassifier
 
 from config import logger
 from read_data import read_dataset
+
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 
 class ObliqueNode:
@@ -25,13 +28,18 @@ class ObliqueNode:
 
 
 class MergeObliqueTree:
-    def __init__(self, smart=True):
+    def __init__(self, smart=True, dist_weight=0.9):
         self.root = None
         self._node_counter = 0
         self.smart = smart
+        self.dist_weight = dist_weight
 
     def _calc_distance(self, node_a, node_b):
-        return np.linalg.norm(node_a["centroid"] - node_b["centroid"])
+        w1 = sigmoid(np.linalg.norm(node_a["centroid"] - node_b["centroid"]))
+        w2 = abs(len(node_a["data"]) - len(node_b["data"])) / (
+            len(node_a["data"]) + len(node_b["data"])
+        )
+        return self.dist_weight * w1 + (1 - self.dist_weight) * w2
 
     def fit(self, X, y):
         unique_labels = np.unique(y)
@@ -49,7 +57,7 @@ class MergeObliqueTree:
                 node_info = {
                     "node": ObliqueNode(label=label, node_id=node_id),
                     "centroid": np.mean(X[indices], axis=0),
-                    "data": X[indices],
+                    "data": indices,
                     "id": node_id,
                     "active": True,
                 }
@@ -78,7 +86,7 @@ class MergeObliqueTree:
                     node_info = {
                         "node": ObliqueNode(label=label, node_id=node_id),
                         "centroid": np.mean(X[cluster_indices], axis=0),
-                        "data": X[cluster_indices],
+                        "data": cluster_indices,
                         "id": node_id,
                         "active": True,
                     }
@@ -116,7 +124,8 @@ class MergeObliqueTree:
             logger.info(f"Merging Node {id_a} and Node {id_b} (Distance: {dist:.4f})")
 
             # Train SVM for this split
-            merged_X = np.vstack([node_a["data"], node_b["data"]])
+            merged_X_indices = np.concatenate([node_a["data"], node_b["data"]])
+            merged_X = X[merged_X_indices]
             merged_y = np.array([0] * len(node_a["data"]) + [1] * len(node_b["data"]))
 
             clf = LinearSVC(dual="auto")
@@ -132,7 +141,7 @@ class MergeObliqueTree:
             new_node_info = {
                 "node": parent_node,
                 "centroid": np.mean(merged_X, axis=0),
-                "data": merged_X,
+                "data": merged_X_indices,
                 "id": new_id,
             }
 
@@ -241,4 +250,4 @@ def test_dataset(name="Dataset", cmp_dt=True, cmp_xgb=True):
 # --- Test Run ---
 if __name__ == "__main__":
     for ds in ["heart", "poker", "sensorless"]:
-        test_dataset(name=ds)
+        test_dataset(name=ds, cmp_xgb=False)

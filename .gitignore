@@ -13,4 +13,4 @@ wheels/
 *.log
 uv.lock
 
-data/
+data
